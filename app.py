@@ -2,27 +2,26 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# Homepage
+# A list to store silence pings
+silence_pings = []
+
 @app.route("/")
 def home():
     return "Hello from Render Flask!"
 
-# Store pings in a list
-silence_pings = []
-
-# Receive silence pings from the microphone script
+# This route will handle silence pings
 @app.route("/silence", methods=["POST"])
-def silence_ping():
-    global silence_pings
-    data = request.json  # Get the incoming data
-    silence_pings.append(data)  # Store it
-    print("Received silence ping:", data)  # Show in logs
-    return {"message": "Silence ping received"}, 200
+def receive_silence():
+    data = request.json  # Get the JSON data sent in the request
+    if "status" in data and data["status"] == "silent":
+        silence_pings.append("Silence detected")  # Save the ping
+        return jsonify({"message": "Silence ping received!"}), 200
+    return jsonify({"error": "Invalid data"}), 400
 
-# Show stored pings
-@app.route("/get_pings", methods=["GET"])
-def get_pings():
-    return jsonify(silence_pings)  # Return all stored pings
+# This route will show all received silence pings
+@app.route("/show_pings")
+def show_pings():
+    return jsonify({"pings": silence_pings})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
