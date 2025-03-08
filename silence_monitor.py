@@ -4,20 +4,22 @@ import time
 import requests
 from datetime import datetime
 
-# 1) CONFIGURABLE SETTINGS
+# Configurable settings
 INITIAL_CALIBRATION_TIME = 10  # Seconds for initial calibration
-RECALIBRATION_CHECK_INTERVAL = 60  # Every 60 seconds, check if environment changed
-CALIBRATION_SENSITIVITY_FACTOR = 1.2  # Multiplier above average noise
-SILENCE_DURATION_THRESHOLD = 3  # How many seconds of silence is considered "real" silence
-CHECK_INTERVAL = 1  # How often to read audio (in seconds)
-RECALIBRATION_THRESHOLD_FACTOR = 1.5  # If average noise changes by > 50%, re-calibrate
-SERVER_URL = "https://my-flask-app-ge3j.onrender.com/silence"  # Your Render endpoint
+RECALIBRATION_CHECK_INTERVAL = 60  # Every 60 seconds, check environment
+CALIBRATION_SENSITIVITY_FACTOR = 1.2  # 20% above average noise
+SILENCE_DURATION_THRESHOLD = 3  # Silence must last >= 3s
+CHECK_INTERVAL = 1  # Check audio every 1s
+RECALIBRATION_THRESHOLD_FACTOR = 1.5  # If noise changes by > 50%, re-calibrate
 
-# 2) GLOBALS FOR AUDIO
+# Your Render endpoint
+SERVER_URL = "https://my-flask-app-ge3j.onrender.com/silence"
+
+# Globals for PyAudio
 p = None
 stream = None
 
-# 3) RUNTIME VARIABLES
+# Runtime variables
 silence_start_time = None
 is_silent = False
 silence_threshold = None
@@ -45,10 +47,7 @@ def start_mic_stream():
             time.sleep(2)
 
 def calibrate_silence_threshold(duration=10):
-    """
-    Calibrates the silence threshold by sampling audio over 'duration' seconds
-    and sets it above the average noise level by CALIBRATION_SENSITIVITY_FACTOR.
-    """
+    """Calibrates the silence threshold by sampling audio over 'duration' seconds."""
     print(f"[INFO] Calibrating silence threshold for {duration} seconds. Please remain quiet if possible.")
     global stream
 
@@ -70,24 +69,18 @@ def calibrate_silence_threshold(duration=10):
     return threshold
 
 def read_volume_level():
-    """
-    Reads audio data and returns the current volume level (mean amplitude).
-    Automatically restarts the mic stream if errors occur.
-    """
+    """Reads audio data and returns the current volume level. Restarts mic if error."""
     global p, stream
     try:
         data = np.frombuffer(stream.read(1024, exception_on_overflow=False), dtype=np.int16)
-        volume = np.abs(data).mean()
-        return volume
+        return np.abs(data).mean()
     except Exception as e:
         print(f"[ERROR] Mic read error: {e}. Restarting microphone stream...")
         start_mic_stream()
         return -1
 
 def send_silence_ping(status_type, start_time, end_time=None):
-    """
-    Sends a POST request indicating silence_start or silence_end, including duration.
-    """
+    """Sends silence_start or silence_end to the server, including duration."""
     payload = {
         "status": status_type,
         "start_time": start_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -105,9 +98,8 @@ def send_silence_ping(status_type, start_time, end_time=None):
 
 def maybe_recalibrate():
     """
-    Checks if the environment changed drastically since last calibration
-    by comparing average recent volume to the old threshold. If it changed
-    more than RECALIBRATION_THRESHOLD_FACTOR, re-run calibration.
+    Checks if the environment changed drastically by comparing average recent volume
+    to the old threshold. If changed by > 50%, re-run calibration for 5s.
     """
     global silence_threshold, last_calibration_time, recent_volume_levels
 
@@ -115,21 +107,23 @@ def maybe_recalibrate():
         return
 
     current_avg = np.mean(recent_volume_levels)
-    # If environment is significantly quieter
-    if current_avg > 0 and (current_avg * CALIBRATION_SENSITIVITY_FACTOR * RECALIBRATION_THRESHOLD_FACTOR) < silence_threshold:
-        print("[INFO] Environment is significantly quieter. Recalibrating threshold...")
-        silence_threshold = calibrate_silence_threshold(5)
-    # If environment is significantly louder
-    elif current_avg * CALIBRATION_SENSITIVITY_FACTOR > silence_threshold * RECALIBRATION_THRESHOLD_FACTOR:
-        print("[INFO] Environment is significantly louder. Recalibrating threshold...")
-        silence_threshold = calibrate_silence_threshold(5)
+    if current_avg > 0:
+        # If environment is significantly quieter
+        if (current_avg * CALIBRATION_SENSITIVITY_FACTOR * RECALIBRATION_THRESHOLD_FACTOR) < silence_threshold:
+            print("[INFO] Environment is significantly quieter. Recalibrating threshold...")
+            silence_threshold = calibrate_silence_threshold(5)
+
+        # If environment is significantly louder
+        elif current_avg * CALIBRATION_SENSITIVITY_FACTOR > silence_threshold * RECALIBRATION_THRESHOLD_FACTOR:
+            print("[INFO] Environment is significantly louder. Recalibrating threshold...")
+            silence_threshold = calibrate_silence_threshold(5)
 
     recent_volume_levels = []
 
 def main():
     global is_silent, silence_start_time, silence_threshold, last_calibration_time
 
-    # Start mic and calibrate
+    # 1) Start mic and calibrate
     start_mic_stream()
     silence_threshold = calibrate_silence_threshold(INITIAL_CALIBRATION_TIME)
     last_calibration_time = time.time()
@@ -143,9 +137,10 @@ def main():
             time.sleep(CHECK_INTERVAL)
             continue
 
+        # Keep track of volume to detect environment changes
         recent_volume_levels.append(volume_level)
 
-        # Recalibrate environment if needed
+        # Check if we should recalibrate environment
         if (time.time() - last_calibration_time) > RECALIBRATION_CHECK_INTERVAL:
             maybe_recalibrate()
             last_calibration_time = time.time()
@@ -153,12 +148,12 @@ def main():
         print(f"DEBUG: Current volume level: {volume_level:.2f}, Threshold: {silence_threshold:.2f}")
 
         if volume_level < silence_threshold:
-            # Potential silence
+            # Silence detected
             if not is_silent:
                 silence_start_time = datetime.now()
                 is_silent = True
                 print(f"[INFO] Silence started at {silence_start_time.strftime('%H:%M:%S')}")
-                # Optionally send a "silence_start" ping if you want:
+                # Optionally send a "silence_start" ping:
                 # send_silence_ping("silence_start", silence_start_time)
         else:
             # Noise detected
