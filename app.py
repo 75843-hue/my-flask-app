@@ -3,23 +3,11 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # Stores all silence pings in memory
-# Example entries:
-# {
-#   "status": "silence_start",
-#   "start_time": "2025-03-08 12:00:00"
-# }
-# or
-# {
-#   "status": "silence_end",
-#   "start_time": "2025-03-08 12:00:00",
-#   "end_time": "2025-03-08 12:00:05",
-#   "duration": 5.0
-# }
 silence_data = []
 
 @app.route("/")
 def home():
-    return "Hello from Render Flask! Visit /show_pings to see stored silence events."
+    return "Hello from Render Flask! Visit /show_pings to see recorded silence events."
 
 @app.route("/silence", methods=["POST"])
 def receive_silence():
@@ -39,9 +27,19 @@ def receive_silence():
 
 @app.route("/show_pings", methods=["GET"])
 def show_pings():
-    """Returns all stored silence events in JSON format."""
-    return jsonify(silence_data)
+    """Returns all stored silence events in an AI-readable format (plain text)."""
+    if not silence_data:
+        return "No silence events recorded yet."
+
+    output = ["Silence Monitoring Log:\n"]
+
+    for entry in silence_data:
+        if entry["status"] == "silence_start":
+            output.append(f"- Silence started at {entry['start_time']}")
+        elif entry["status"] == "silence_end":
+            output.append(f"- Silence ended at {entry['end_time']} (Lasted {entry['duration']} seconds)")
+
+    return "<br>".join(output)  # Converts to readable HTML format
 
 if __name__ == "__main__":
-    # For local testing on port 5000, but on Render the port is set automatically
     app.run(host="0.0.0.0", port=5000, debug=True)
