@@ -4,69 +4,99 @@ import time
 import requests
 from datetime import datetime
 
-# Configurable settings
-CALIBRATION_TIME = 5  # Seconds to calibrate ambient noise
-SILENCE_DURATION_THRESHOLD = 3  # Seconds before silence is considered real
+# 🔹 Configurable settings
+SILENCE_DURATION_THRESHOLD = 3  # Seconds of silence before it's considered "true silence"
 CHECK_INTERVAL = 1  # How often to check for silence (in seconds)
-SERVER_URL = "https://my-flask-app-ge3j.onrender.com/silence"  # Render Flask App
+SERVER_URL = "https://my-flask-app-ge3j.onrender.com/silence"  # ✅ Correct server
 
-# Setup microphone
-p = pyaudio.PyAudio()
-stream = p.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True, frames_per_buffer=1024)
+# 🔹 Initialize PyAudio
+p = None
+stream = None
 
-# Auto-adjust silence threshold
-print("🔄 Calibrating silence threshold... please wait.")
-threshold_values = []
-for _ in range(int(CALIBRATION_TIME / CHECK_INTERVAL)):
-    data = np.frombuffer(stream.read(1024, exception_on_overflow=False), dtype=np.int16)
-    threshold_values.append(np.abs(data).mean())
-    time.sleep(CHECK_INTERVAL)
+def start_mic_stream():
+    """Ensures the microphone stream is always active"""
+    global p, stream  # ✅ Declare global variables before use
 
-SILENCE_THRESHOLD = np.mean(threshold_values) * 1.2  # Set silence threshold slightly higher
-print(f"✅ Silence threshold set to: {SILENCE_THRESHOLD:.2f}")
+    if p is not None:
+        p.terminate()  # Make sure to properly restart
 
-# Silence tracking variables
-silence_start_time = None
-is_silent = False
+    try:
+        p = pyaudio.PyAudio()
+        stream = p.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True, frames_per_buffer=1024)
+        print("[INFO] 🎤 Microphone stream started successfully.")
+    except Exception as e:
+        print(f"[ERROR] ❌ Failed to access microphone: {e}")
+        time.sleep(2)  # Wait and retry
+        start_mic_stream()
 
-def is_silence():
-    """Check if the current audio input level is below the threshold"""
-    data = np.frombuffer(stream.read(1024, exception_on_overflow=False), dtype=np.int16)
-    volume_level = np.abs(data).mean()
-    print(f"DEBUG: Current volume level: {volume_level:.2f}")
-    return volume_level < SILENCE_THRESHOLD
+def calibrate_silence_threshold(duration=5):
+    """Calibrates background noise level for better silence detection"""
+    print("[INFO] 🔄 Calibrating silence threshold... please wait.")
+    global stream
+
+    volume_levels = []
+    for _ in range(int(duration / CHECK_INTERVAL)):
+        data = np.frombuffer(stream.read(1024, exception_on_overflow=False), dtype=np.int16)
+        volume_levels.append(np.abs(data).mean())
+        time.sleep(CHECK_INTERVAL)
+
+    threshold = np.mean(volume_levels) * 1.2  # 20% above background noise
+    print(f"[INFO] ✅ Silence threshold set to: {threshold:.2f}")
+    return threshold
+
+def is_silence(threshold):
+    """Checks if the audio input is below the calculated silence threshold"""
+    global stream
+    try:
+        data = np.frombuffer(stream.read(1024, exception_on_overflow=False), dtype=np.int16)
+        volume_level = np.abs(data).mean()
+        print(f"DEBUG: 🎚️ Current volume level: {volume_level:.2f}")  # Debugging info
+        return volume_level < threshold
+    except Exception as e:
+        print(f"[ERROR] ❌ Issue reading microphone data: {e}")
+        start_mic_stream()  # Restart mic if there's an error
+        return False
 
 def send_silence_ping(start_timestamp, end_timestamp=None):
-    """Send silence start and end pings to the server"""
+    """Sends silence start and end pings to the server"""
     payload = {
         "status": "silent",
-        "start_time": start_timestamp.strftime("%Y-%m-%d %H:%M:%S")  # Convert datetime to string
+        "start_time": start_timestamp.isoformat()  # ✅ Fix: Convert datetime to JSON serializable format
     }
     
     if end_timestamp:
         duration = round((end_timestamp - start_timestamp).total_seconds(), 2)
-        payload["end_time"] = end_timestamp.strftime("%Y-%m-%d %H:%M:%S")  # Convert datetime to string
+        payload["end_time"] = end_timestamp.isoformat()
         payload["duration"] = duration
-
+    
     try:
         response = requests.post(SERVER_URL, json=payload)
-        print(f"📡 Sent silence ping: {payload}, Response: {response.status_code}")
+        print(f"[INFO] 📡 Sent silence ping: {payload}, Response: {response.status_code}")
     except Exception as e:
-        print(f"⚠️ Failed to send silence ping: {e}")
+        print(f"[ERROR] ❌ Failed to send silence ping: {e}")
 
-print("🎤 Silence monitor running...")
+# 🔹 Start microphone and calibrate
+start_mic_stream()
+silence_threshold = calibrate_silence_threshold()
+
+# 🔹 Silence tracking variables
+silence_start_time = None
+is_silent = False  
+
+print("[INFO] 🎤 Silence monitor running...")
 
 while True:
-    if is_silence():
+    if is_silence(silence_threshold):
         if not is_silent:  # First moment of detected silence
             silence_start_time = datetime.now()
             is_silent = True
-            print(f"🤫 Silence started at {silence_start_time.strftime('%H:%M:%S')}")
+            print(f"[INFO] 🤫 Silence detected at {silence_start_time.strftime('%H:%M:%S')}")
+
     else:
         if is_silent:  # Silence has ended
             silence_end_time = datetime.now()
             send_silence_ping(silence_start_time, silence_end_time)
-            is_silent = False  # Reset silence state
-            print(f"🗣️ Sound detected at {silence_end_time.strftime('%H:%M:%S')}")
+            print(f"[INFO] 🗣️ Sound detected at {silence_end_time.strftime('%H:%M:%S')}, silence lasted {round((silence_end_time - silence_start_time).total_seconds(), 2)} sec.")
+            is_silent = False  
 
     time.sleep(CHECK_INTERVAL)
