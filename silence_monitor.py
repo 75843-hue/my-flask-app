@@ -8,7 +8,7 @@ from datetime import datetime
 THRESHOLD = 500  # Adjust for sensitivity to speech vs. background noise
 SILENCE_DURATION_THRESHOLD = 3  # Seconds of silence before it's considered "true silence"
 CHECK_INTERVAL = 1  # How often to check for silence (in seconds)
-SERVER_URL = "https://my-flask-app-ge3j.onrender.com"  # Replace with your actual server URL
+SERVER_URL = "YOUR_SERVER_URL_HERE"  # Replace with your actual server URL
 
 # Setup microphone
 p = pyaudio.PyAudio()
@@ -25,13 +25,16 @@ def is_silence():
 
 def send_silence_ping(start_timestamp, end_timestamp=None):
     """Send silence start and end pings to the server"""
-    payload = {"status": "silent", "start_time": start_timestamp}
-    
+    payload = {
+        "status": "silent",
+        "start_time": start_timestamp.isoformat()  # Convert datetime to string
+    }
+
     if end_timestamp:
         duration = round((end_timestamp - start_timestamp).total_seconds(), 2)
-        payload["end_time"] = end_timestamp
+        payload["end_time"] = end_timestamp.isoformat()  # Convert datetime to string
         payload["duration"] = duration
-    
+
     try:
         response = requests.post(SERVER_URL, json=payload)
         print(f"Sent silence ping: {payload}, Response: {response.status_code}")
