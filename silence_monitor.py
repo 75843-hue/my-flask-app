@@ -7,7 +7,7 @@ from datetime import datetime
 # 🔹 Configurable settings
 SILENCE_DURATION_THRESHOLD = 3  # Seconds of silence before it's considered "true silence"
 CHECK_INTERVAL = 1  # How often to check for silence (in seconds)
-SERVER_URL = "YOUR_SERVER_URL_HERE"  # Replace with your actual server URL
+SERVER_URL = "https://my-flask-app-ge3j.onrender.com"  # Replace with your actual server URL
 
 # 🔹 Initialize PyAudio
 p = None
